@@ -6,6 +6,7 @@ import cors from 'cors';
 import * as dotenv from 'dotenv';
 import path from 'path';
 import helmet from 'helmet';
+import crypto from 'crypto';
 
 // Determine project root directory in a way that works for CommonJS and ts-node
 // Avoid using import.meta so compilation does not require ES module settings.
@@ -73,14 +74,20 @@ async function connectToDatabase() {
 }
 
 // Middleware
+const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
 app.use(cors({
-  origin: "*",
+  origin: CORS_ORIGIN,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization"],
 }));
 
 // Security headers
+// Basic security headers. We add a couple explicit protections for clickjacking and HSTS.
 app.use(helmet());
+// Deny framing to mitigate clickjacking (more strict than SAMEORIGIN)
+app.use(helmet.frameguard({ action: 'deny' }));
+// Enforce HSTS for 1 year in production — ensure your TLS termination is configured to serve HTTPS
+app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true, preload: true }));
 
 // Enforce HTTPS in production (behind proxy/load balancer)
 app.use((req: Request, res: Response, next: NextFunction) => {
@@ -93,7 +100,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-app.use(express.json());
+// Limit JSON payload size to mitigate some DoS vectors from huge request bodies
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '10kb' }));
 app.use(express.static(path.join(__dirname, '../../dist')));
 
 // Rate limiting helper
@@ -118,9 +126,8 @@ function checkRateLimit(ip: string, maxRequests = 5, windowMs = 60000): boolean 
 
 // Generate secure session token
 function generateSessionToken(): string {
-  return Array.from(crypto.getRandomValues(new Uint8Array(32)))
-    .map(b => b.toString(16).padStart(2, '0'))
-    .join('');
+  // Use Node's crypto to generate a secure random token
+  return crypto.randomBytes(32).toString('hex');
 }
 
 // Generate reference number
@@ -163,6 +170,19 @@ async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const user = await db.collection('users').findOne({ _id: session.user_id });
   if (!user) {
     return res.status(401).json({ success: false, error: "User not found" });
+  }
+
+  // Optional strict session binding to IP and User-Agent to mitigate session theft
+  const STRICT_BINDING = process.env.SESSION_STRICT_BINDING === 'true';
+  if (STRICT_BINDING) {
+    const incomingIP = req.ip || (req.connection && (req.connection as any).remoteAddress) || '';
+    const incomingUA = req.headers['user-agent'] || '';
+    if (session.ip_address && session.ip_address !== incomingIP) {
+      return res.status(401).json({ success: false, error: 'Session IP mismatch' });
+    }
+    if (session.user_agent && String(session.user_agent) !== String(incomingUA)) {
+      return res.status(401).json({ success: false, error: 'Session User-Agent mismatch' });
+    }
   }
 
   req.user = { ...session, ...user };

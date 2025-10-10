@@ -18,9 +18,10 @@ export const UserSchema = z.object({
 });
 
 export const LoginSchema = z.object({
-  email: z.string().email("Invalid email format").optional(),
+  email: z.string().email("Invalid email format").max(254, "Email too long").optional(),
   account_number: z.string()
     .min(6, "Account number must be at least 6 characters")
+    .max(64, "Account number too long")
     .regex(/^[A-Z0-9\-]+$/i, "Invalid account number format")
     .optional(),
   password: z.string().min(8, "Password must be at least 8 characters"),
@@ -31,10 +32,11 @@ export const LoginSchema = z.object({
 
 export const RegisterSchema = z.object({
   // For now registration only requires email and password
-  email: z.string().email("Invalid email format"),
+  email: z.string().email("Invalid email format").max(254, "Email too long"),
   password: z.string()
     .min(8, "Password must be at least 8 characters")
-    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]/,
+    // Anchor and require at least one of each class; allow only the selected characters
+    .regex(/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]+$/,
       "Password must contain at least one uppercase letter, one lowercase letter, one number and one special character"),
 });
 
@@ -63,15 +65,19 @@ export const PaymentTransactionSchema = z.object({
 export const CreatePaymentSchema = z.object({
   recipient_name: z.string()
     .min(2, "Recipient name must be at least 2 characters")
+    .max(100, "Recipient name too long")
     .regex(/^[a-zA-Z\s\-\.]+$/, "Recipient name can only contain letters, spaces, hyphens and dots"),
   recipient_account: z.string()
     .min(8, "Account number must be at least 8 characters")
+    .max(64, "Account number too long")
     .regex(/^[A-Z0-9\-]+$/, "Invalid account number format"),
   recipient_bank: z.string()
     .min(2, "Bank name is required")
+    .max(100, "Bank name too long")
     .regex(/^[a-zA-Z\s\-\.]+$/, "Bank name can only contain letters, spaces, hyphens and dots"),
   recipient_country: z.string()
     .min(2, "Country is required")
+    .max(56, "Country name too long")
     .regex(/^[a-zA-Z\s]+$/, "Country can only contain letters and spaces"),
   amount: z.number()
     .min(1, "Amount must be at least 1")

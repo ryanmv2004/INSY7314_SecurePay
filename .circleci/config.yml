@@ -3,10 +3,6 @@
 
 version: 2.1
 
-# Import the official SonarSource "orb" 
-orbs:
-  sonar-scan: sonarsource/sonar-scan@3.0.1
-
 # Define the job that will run
 jobs:
   build-and-scan:
@@ -24,23 +20,36 @@ jobs:
           name: "Install Dependencies"
           command: npm install
 
-      # Step 3: Run the SonarQube scan
-      version: 2.1
-  
-  
-  
-          sonar_host_url: https://sonarcloud.io/project/overview?id=ryanmv2004_INSY7314_SecurePay
-          # Where your source lives relative to repo root
-          project_sources: "src/react-app, src/server"
-          project_name: "INSY7314_SecurePay"
+      # Step 3: Debug environment variables (safe — does not print the token value)
+      - run:
+          name: "Debug Sonar env vars"
+          command: |
+            echo "SONAR_TOKEN set? ${SONAR_TOKEN:+yes}"
+            echo "SONAR_HOST_URL: ${SONAR_HOST_URL:-<not set>}"
+            echo "SONAR_PROJECT_KEY: ${SONAR_PROJECT_KEY:-<not set>}"
+
+      # Step 4: Install sonar-scanner CLI globally
+      - run:
+          name: "Install sonar-scanner"
+          command: |
+            npm install -g sonar-scanner
+
+      # Step 5: Run the sonar-scanner CLI pointing at your SonarQube server
+      - run:
+          name: "Run SonarQube analysis"
+          command: |
+            sonar-scanner \
+              -Dsonar.host.url="$SONAR_HOST_URL" \
+              -Dsonar.login="$SONAR_TOKEN" \
+              -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+              -Dsonar.projectName="INSY7314_SecurePay" \
+              -Dsonar.sources="src/react-app,src/server"
 
 # Define the workflow (how and when to run the job)
 workflows:
   main-workflow:
     jobs:
       - build-and-scan:
-          # This filter tells the job to run on the 'main' branch
-          # AND on this new branch, so we can test it right now.
           filters:
             branches:
               only:

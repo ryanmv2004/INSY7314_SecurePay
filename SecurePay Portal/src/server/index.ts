@@ -9,8 +9,7 @@ import path from 'path';
 import helmet from 'helmet';
 import crypto from 'crypto';
 
-// Determine project root directory in a way that works for CommonJS and ts-node
-// Avoid using import.meta so compilation does not require ES module settings.
+
 const PROJECT_ROOT = process.cwd();
 const __dirname = PROJECT_ROOT;
 
@@ -28,15 +27,14 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// JWT secret (use env if provided, otherwise keep a process-random secret so tokens
-// are valid only for this process). This avoids failing when JWT_SECRET is not set.
+
 const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
 
 // MongoDB connection
 let db: any;
 const MONGODB_URI = process.env.MONGODB_URI || '';
 
-// Minimal in-memory collection implementation used as a fallback when MongoDB is not available.
+
 function createInMemoryDb() {
   const collections: Record<string, any[]> = {
     users: [],
@@ -110,7 +108,7 @@ async function connectToDatabase() {
   if (!MONGODB_URI) {
     console.warn('No MongoDB connection string provided — falling back to in-memory DB.');
     db = createInMemoryDb();
-    // Seed a demo staff user for local development so admin endpoints can be used.
+    // Seed a demo staff user 
     try {
       const existing = await db.collection('users').findOne({ email: 'test12345@gmail.com' });
       if (!existing) {
@@ -139,9 +137,9 @@ async function connectToDatabase() {
     db = client.db();
     console.log('Connected to MongoDB');
 
-    // Create indexes for better performance
+    // Create indexes 
     await db.collection('users').createIndex({ email: 1 }, { unique: true });
-    // Ensure username index is unique but sparse (so multiple null/missing usernames are allowed)
+    // Ensure username index is unique 
     try {
       const indexes = await db.collection('users').indexInformation({ full: true });
       const usernameIndex = indexes.find((ix: any) => ix.name === 'username_1');
@@ -200,14 +198,15 @@ app.use(cors({
 }));
 
 // Security headers
-// Basic security headers. We add a couple explicit protections for clickjacking and HSTS.
+
+// Basic security headers.
 app.use(helmet());
-// Deny framing to mitigate clickjacking (more strict than SAMEORIGIN)
+// Deny framing to mitigate clickjacking 
 app.use(helmet.frameguard({ action: 'deny' }));
-// Enforce HSTS for 1 year in production — ensure your TLS termination is configured to serve HTTPS
+
 app.use(helmet.hsts({ maxAge: 31536000, includeSubDomains: true, preload: true }));
 
-// Enforce HTTPS in production (behind proxy/load balancer)
+// Enforce HTTPS in production 
 app.use((req: Request, res: Response, next: NextFunction) => {
   if (process.env.NODE_ENV === 'production') {
     if (req.headers['x-forwarded-proto'] && req.headers['x-forwarded-proto'] !== 'https') {
@@ -218,14 +217,10 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Limit JSON payload size to mitigate some DoS vectors from huge request bodies
+// Limit JSON payload size to mitigate some DoS
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '10kb' }));
 
-/**
- * Basic server-side sanitizer to reduce stored XSS risk.
- * This does a light pass: removes <script>...</script> blocks and escapes < and > in strings.
- * It's intentionally conservative so it doesn't block valid input formats entirely.
- */
+
 function sanitizeValue(value: any): any {
   if (typeof value === 'string') {
     // Drop script tags and their contents
@@ -252,13 +247,10 @@ function sanitizeInput(req: Request, _res: Response, next: NextFunction) {
 app.use(sanitizeInput);
 app.use(express.static(path.join(__dirname, '../../dist')));
 
-// Rate limiting helper (keyed by action+ip to avoid one flow blocking another)
+// Rate limiting helper
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
-/**
- * Check a rate limit using a key string. Key should include action and client IP
- * (e.g. `register:127.0.0.1`) so different flows have separate quotas.
- */
+ 
 function checkRateLimit(key: string, maxRequests = 5, windowMs = 60000): boolean {
   const now = Date.now();
   const userLimit = rateLimitMap.get(key);
@@ -300,13 +292,13 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
   return await bcrypt.compare(password, hash);
 }
 
-// Sign a JWT for the given user id and claims. Short-lived token for API usage.
+// Sign a JWT for the given user id and claims.
 function signJwt(userId: string, opts?: { expiresIn?: string }) {
   const payload = { sub: userId };
   return jwt.sign(payload, JWT_SECRET, { expiresIn: opts?.expiresIn || '1h' });
 }
 
-// Helper to find a user by id that works for both in-memory and MongoDB backends
+// Helper to find a user by id 
 async function findUserById(id: string) {
   const users = db.collection('users');
   if (users.__inMemory) {
@@ -317,7 +309,7 @@ async function findUserById(id: string) {
       return await users.findOne({ _id: new ObjectId(id) });
     }
   } catch (_) {
-    // fallthrough
+    
   }
   // Last resort: try string match
   return await users.findOne({ _id: id });
@@ -332,7 +324,7 @@ async function authMiddleware(req: Request, res: Response, next: NextFunction) {
 
   const token = authorization.split(' ')[1];
 
-  // Try session lookup first (existing session token flow)
+  // Try session lookup
   const session = await db.collection('user_sessions').findOne({
     session_token: token,
     is_active: true,
@@ -362,7 +354,7 @@ async function authMiddleware(req: Request, res: Response, next: NextFunction) {
     return next();
   }
 
-  // If no session found, attempt JWT verification (stateless token flow)
+  // If no session found, attempt JWT verification
   try {
     const decoded: any = jwt.verify(token, JWT_SECRET);
     const userId = decoded?.sub;
@@ -645,7 +637,7 @@ app.get("/api/payments/:id", authMiddleware, async (req: Request, res: Response)
     const paymentCollection = db.collection('payment_transactions');
 
     let transaction: any = null;
-    // If using in-memory DB, IDs are strings/UUIDs — skip ObjectId validation
+    // If using in-memory DB, 
     if (paymentCollection.__inMemory) {
       transaction = await paymentCollection.findOne({
         _id: transactionId,
@@ -680,7 +672,7 @@ app.get("/api/health", (req: Request, res: Response) => {
   res.json({ success: true, message: "SecurePay Portal API is running with MongoDB" });
 });
 
-// Admin endpoints - staff use (assumes staff sessions are stored in users with is_staff flag)
+// Admin endpoints - staff use 
 app.get('/api/admin/transactions', authMiddleware, async (req: Request, res: Response) => {
   const user = req.user;
   if (!user.is_staff) return res.status(403).json({ success: false, error: 'Forbidden' });
@@ -693,7 +685,7 @@ app.get('/api/admin/transactions', authMiddleware, async (req: Request, res: Res
     const paymentCollection = db.collection('payment_transactions');
 
     if (paymentCollection.__inMemory) {
-      // In-memory: fetch transactions and attach user info per-transaction
+    
       const txs: any[] = await paymentCollection.find(filter).sort({ created_at: -1 }).limit(200).toArray();
       const adapted: any[] = [];
       for (const t of txs) {
@@ -712,7 +704,7 @@ app.get('/api/admin/transactions', authMiddleware, async (req: Request, res: Res
       return res.json({ success: true, data: adapted });
     }
 
-    // MongoDB: use aggregation to $lookup user info
+    
     const pipeline: any[] = [
       { $match: filter },
       { $sort: { created_at: -1 } },
@@ -734,7 +726,7 @@ app.get('/api/admin/transactions', authMiddleware, async (req: Request, res: Res
       },
       {
         $project: {
-          user: 0 // remove embedded user object
+          user: 0 
         }
       }
     ];
@@ -747,7 +739,7 @@ app.get('/api/admin/transactions', authMiddleware, async (req: Request, res: Res
   }
 });
 
-// Verify a transaction (mark processed and status=completed)
+// Verify a transaction 
 app.post('/api/admin/transactions/:id/verify', authMiddleware, async (req: Request, res: Response) => {
   const user = req.user;
   if (!user.is_staff) return res.status(403).json({ success: false, error: 'Forbidden' });
@@ -779,7 +771,7 @@ app.post('/api/admin/transactions/:id/verify', authMiddleware, async (req: Reque
   }
 });
 
-// Serve React app for all other routes (catch-all fallback)
+// Serve React app for all other routes
 app.use((req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '../../dist/index.html'));
 });

@@ -794,7 +794,6 @@ app.post('/api/admin/transactions/:id/verify', authMiddleware, async (req: Reque
   }
 });
 
-// Serve React app for all other routes
 app.use((req: Request, res: Response) => {
   res.sendFile(path.join(__dirname, '../../dist/index.html'));
 });

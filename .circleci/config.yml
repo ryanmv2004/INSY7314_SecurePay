@@ -1,0 +1,91 @@
+# CircleCI Configuration for INSY7314_SecurePay
+# This file tells CircleCI what to do.
+
+version: 2.1
+
+# Define the job that will run
+jobs:
+  build-and-scan:
+    # Use a standard Node.js environment via Docker image
+    docker:
+      - image: cimg/node:18.0
+    # Use the repo root as working dir and cd into the project folder in steps
+    working_directory: "~/repo"
+
+    steps:
+      # Step 1: Get the code from GitHub
+      - checkout
+
+      # Quick workspace listing to help debug path issues
+      - run:
+          name: "List workspace"
+          command: |
+            echo "Workspace root: $(pwd)"
+            ls -la
+            echo "SecurePay Portal contents:"
+            ls -la "SecurePay Portal" || true
+
+      # Step 2: Install all project dependencies (inside 'SecurePay Portal')
+      - run:
+          name: "Install Dependencies"
+          command: cd "SecurePay Portal" && npm install
+
+      # Step 3: Debug environment variables (safe — does not print the token value)
+      - run:
+          name: "Debug Sonar env vars"
+          command: |
+            echo "SONAR_TOKEN set? ${SONAR_TOKEN:+yes}"
+            echo "SONAR_HOST_URL: ${SONAR_HOST_URL:-<not set>}"
+            echo "SONAR_PROJECT_KEY: ${SONAR_PROJECT_KEY:-<not set>}"
+
+      # Step 4: Install OpenJDK (required by sonar-scanner) and sonar-scanner CLI
+      - run:
+          name: "Install OpenJDK and sonar-scanner"
+          command: |
+            sudo apt-get update -y
+            # SonarQube Server 12+ requires Java 17+ for the scanner runtime
+            sudo apt-get install -y openjdk-17-jre-headless
+            export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+            export PATH="$JAVA_HOME/bin:$PATH"
+            node -v && java -version
+            npm install -g sonar-scanner
+
+      # Step 5: Run the sonar-scanner CLI pointing at your SonarQube server
+      - run:
+          name: "Run SonarQube analysis"
+          command: |
+            cd "SecurePay Portal"
+            echo "Checking Sonar server endpoint: $SONAR_HOST_URL/api/server/version"
+            # show HTTP headers for the API endpoint (do not print body)
+            curl -sS -I "$SONAR_HOST_URL/api/server/version" || true
+
+            # Normalize SONAR_HOST_URL (remove trailing slash)
+            HOST="${SONAR_HOST_URL%/}"
+            echo "Using Sonar host: $HOST"
+
+            # Build scanner args dynamically
+            SCANNER_ARGS=("-Dsonar.host.url=$HOST" "-Dsonar.login=$SONAR_TOKEN" "-Dsonar.projectKey=$SONAR_PROJECT_KEY" "-Dsonar.projectName=INSY7314_SecurePay" "-Dsonar.sources=src/react-app,src/server")
+
+            # If SONAR_ORGANIZATION isn't provided, infer from project key prefix 'ryanmv2004' (assumption)
+            if [ -n "$SONAR_ORGANIZATION" ]; then
+              ORG="$SONAR_ORGANIZATION"
+              echo "Using Sonar organization from env: $ORG"
+            else
+              ORG="ryanmv2004"
+              echo "SONAR_ORGANIZATION not set — defaulting to inferred org: $ORG"
+            fi
+            SCANNER_ARGS+=("-Dsonar.organization=$ORG")
+
+            # Run scanner with debug output (-X). We avoid echoing the token.
+            sonar-scanner -X "${SCANNER_ARGS[@]}"
+
+# Define the workflow (how and when to run the job)
+workflows:
+  main-workflow:
+    jobs:
+      - build-and-scan:
+          filters:
+            branches:
+              only:
+                - main
+                - circleci-project-setup

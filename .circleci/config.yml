@@ -9,26 +9,26 @@ jobs:
     # Use a standard Node.js environment via Docker image
     docker:
       - image: cimg/node:18.0
-  # Use the repo root as working dir and cd into the project folder in steps
-  working_directory: "~/repo"
+    # Use the repo root as working dir and cd into the project folder in steps
+    working_directory: "~/repo"
 
     steps:
       # Step 1: Get the code from GitHub
       - checkout
 
-  # Quick workspace listing to help debug path issues
-  - run:
-      name: "List workspace"
-      command: |
-    echo "Workspace root: $(pwd)"
-    ls -la
-    echo "SecurePay Portal contents:"
-    ls -la "SecurePay Portal" || true
+      # Quick workspace listing to help debug path issues
+      - run:
+          name: "List workspace"
+          command: |
+            echo "Workspace root: $(pwd)"
+            ls -la
+            echo "SecurePay Portal contents:"
+            ls -la "SecurePay Portal" || true
 
       # Step 2: Install all project dependencies (inside 'SecurePay Portal')
-    - run:
-      name: "Install Dependencies"
-      command: cd "SecurePay Portal" && npm install
+      - run:
+          name: "Install Dependencies"
+          command: cd "SecurePay Portal" && npm install
 
       # Step 3: Debug environment variables (safe — does not print the token value)
       - run:

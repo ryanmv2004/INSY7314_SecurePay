@@ -9,18 +9,26 @@ jobs:
     # Use a standard Node.js environment via Docker image
     docker:
       - image: cimg/node:18.0
-    # The repository contains a top-level folder named 'SecurePay Portal'
-    # which holds package.json and the `src/` dir. Run commands from there.
-    working_directory: "~/repo/SecurePay Portal"
+  # Use the repo root as working dir and cd into the project folder in steps
+  working_directory: "~/repo"
 
     steps:
       # Step 1: Get the code from GitHub
       - checkout
 
+  # Quick workspace listing to help debug path issues
+  - run:
+      name: "List workspace"
+      command: |
+    echo "Workspace root: $(pwd)"
+    ls -la
+    echo "SecurePay Portal contents:"
+    ls -la "SecurePay Portal" || true
+
       # Step 2: Install all project dependencies (inside 'SecurePay Portal')
-      - run:
-          name: "Install Dependencies"
-          command: npm install
+    - run:
+      name: "Install Dependencies"
+      command: cd "SecurePay Portal" && npm install
 
       # Step 3: Debug environment variables (safe — does not print the token value)
       - run:
@@ -30,16 +38,20 @@ jobs:
             echo "SONAR_HOST_URL: ${SONAR_HOST_URL:-<not set>}"
             echo "SONAR_PROJECT_KEY: ${SONAR_PROJECT_KEY:-<not set>}"
 
-      # Step 4: Install sonar-scanner CLI globally
+      # Step 4: Install OpenJDK (required by sonar-scanner) and sonar-scanner CLI
       - run:
-          name: "Install sonar-scanner"
+          name: "Install OpenJDK and sonar-scanner"
           command: |
+            sudo apt-get update -y
+            sudo apt-get install -y openjdk-11-jre-headless
+            node -v && java -version
             npm install -g sonar-scanner
 
       # Step 5: Run the sonar-scanner CLI pointing at your SonarQube server
       - run:
           name: "Run SonarQube analysis"
           command: |
+            cd "SecurePay Portal" && \
             sonar-scanner \
               -Dsonar.host.url="$SONAR_HOST_URL" \
               -Dsonar.login="$SONAR_TOKEN" \

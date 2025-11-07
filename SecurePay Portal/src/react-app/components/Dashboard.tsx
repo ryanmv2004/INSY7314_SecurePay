@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Plus, History, Eye, Clock, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
+import { Plus, History, Eye, Clock, CheckCircle, XCircle, AlertTriangle, UserCheck } from 'lucide-react';
 import PaymentForm from './PaymentForm';
+import EmployeeApproval from './EmployeeApproval';
 
 interface User {
   id: number;
@@ -29,7 +30,7 @@ interface DashboardProps {
 }
 
 export default function Dashboard({ user }: DashboardProps) {
-  const [activeTab, setActiveTab] = useState<'overview' | 'new-payment' | 'history'>('overview');
+  const [activeTab, setActiveTab] = useState<'overview' | 'new-payment' | 'history' | 'employee-approval'>('overview');
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -122,6 +123,24 @@ export default function Dashboard({ user }: DashboardProps) {
     .filter(t => t.status === 'completed')
     .reduce((sum, t) => sum + t.amount, 0);
 
+  if (activeTab === 'employee-approval') {
+    return (
+      <div>
+        <div className="container mx-auto px-4 py-8">
+          <div className="mb-6">
+            <button
+              onClick={() => setActiveTab('overview')}
+              className="text-blue-600 hover:text-blue-700 flex items-center text-sm font-medium"
+            >
+              ← Back to Dashboard
+            </button>
+          </div>
+        </div>
+        <EmployeeApproval />
+      </div>
+    );
+  }
+
   if (activeTab === 'new-payment') {
     return (
       <div className="container mx-auto px-4 py-8">
@@ -163,7 +182,7 @@ export default function Dashboard({ user }: DashboardProps) {
       </div>
 
       {/* Quick Actions */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         <button
           onClick={() => setActiveTab('new-payment')}
           className="p-6 bg-gradient-to-r from-blue-600 to-indigo-600 text-white rounded-2xl hover:from-blue-700 hover:to-indigo-700 transition-all transform hover:scale-105 shadow-lg"
@@ -180,6 +199,15 @@ export default function Dashboard({ user }: DashboardProps) {
           <History className="w-8 h-8 mb-3 text-slate-600" />
           <h3 className="text-lg font-semibold mb-2 text-slate-900">Transaction History</h3>
           <p className="text-slate-600">View all your payments</p>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('employee-approval')}
+          className="p-6 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
+        >
+          <UserCheck className="w-8 h-8 mb-3" />
+          <h3 className="text-lg font-semibold mb-2">Employee Approval</h3>
+          <p className="text-purple-100">Review & approve transactions</p>
         </button>
 
         <div className="p-6 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl">

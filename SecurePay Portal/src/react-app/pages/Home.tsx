@@ -12,7 +12,15 @@ interface AppUser {
 }
 
 export default function Home() {
-  const [user, setUser] = useState<AppUser | null>(null);
+  // TEMPORARY BYPASS: Mock user to skip login/register
+  const [user, setUser] = useState<AppUser | null>({
+    id: 1,
+    email: 'dev@test.com',
+    full_name: 'Developer User',
+    is_verified: true,
+  });
+  
+  // Keep login/register functionality (currently bypassed)
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');

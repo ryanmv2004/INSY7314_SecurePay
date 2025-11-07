@@ -25,12 +25,11 @@ jobs:
           command: npm install
 
       # Step 3: Run the SonarQube scan
-      - sonar-scan/scan:
-          # These values are read from the CircleCI environment (project settings or contexts)
-          sonar_token: $SONAR_TOKEN
-          project_key: $SONAR_PROJECT_KEY
-          # For self-hosted SonarQube, set SONAR_HOST_URL (e.g. https://sonarqube.example.com)
-          sonar_host_url: $SONAR_HOST_URL
+      version: 2.1
+  
+  
+  
+          sonar_host_url: https://sonarcloud.io/project/overview?id=ryanmv2004_INSY7314_SecurePay
           # Where your source lives relative to repo root
           project_sources: "src/react-app, src/server"
           project_name: "INSY7314_SecurePay"

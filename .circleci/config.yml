@@ -5,7 +5,7 @@ version: 2.1
 
 # Import the official SonarSource "orb" 
 orbs:
-  sonar-scan: sonarsource/sonar-scan@2.1.0
+  sonar-scan: sonarsource/sonar-scan@3.0.1
 
 # Define the job that will run
 jobs:

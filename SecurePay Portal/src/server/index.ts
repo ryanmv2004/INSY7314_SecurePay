@@ -221,7 +221,9 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '10kb' }));
 
 
-function sanitizeValue(value: any): any {
+function sanitizeValue(value: any, skipSanitization = false): any {
+  if (skipSanitization) return value;
+  
   if (typeof value === 'string') {
     // Drop script tags and their contents
     value = value.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
@@ -229,10 +231,14 @@ function sanitizeValue(value: any): any {
     value = value.replace(/</g, '&lt;').replace(/>/g, '&gt;');
     return value;
   }
-  if (Array.isArray(value)) return value.map(sanitizeValue);
+  if (Array.isArray(value)) return value.map(v => sanitizeValue(v, skipSanitization));
   if (value && typeof value === 'object') {
     const out: any = {};
-    for (const k of Object.keys(value)) out[k] = sanitizeValue(value[k]);
+    for (const k of Object.keys(value)) {
+      // Don't sanitize password fields
+      const shouldSkip = k === 'password' || k === 'password_hash';
+      out[k] = sanitizeValue(value[k], shouldSkip);
+    }
     return out;
   }
   return value;
@@ -240,7 +246,12 @@ function sanitizeValue(value: any): any {
 
 function sanitizeInput(req: Request, _res: Response, next: NextFunction) {
   if (req.body) req.body = sanitizeValue(req.body);
-  if (req.query) req.query = sanitizeValue(req.query);
+  if (req.query && Object.keys(req.query).length > 0) {
+    // req.query is read-only, so we need to sanitize in place
+    const sanitized = sanitizeValue(req.query);
+    Object.keys(req.query).forEach(key => delete (req.query as any)[key]);
+    Object.assign(req.query, sanitized);
+  }
   next();
 }
 
@@ -459,9 +470,21 @@ app.post("/api/auth/login", validateRequest(LoginSchema), async (req: Request, r
     if (account_number) query.account_number = account_number;
     if (email) query.email = email;
 
+    console.log('Login attempt with query:', { ...query, password: '***' });
+    
     const user = await db.collection('users').findOne(query);
+    
+    console.log('User found:', user ? 'yes' : 'no');
+    if (user) {
+      console.log('User details:', { 
+        email: user.email, 
+        is_active: user.is_active,
+        has_password_hash: !!user.password_hash 
+      });
+    }
 
     if (!user || !(await verifyPassword(password, user.password_hash))) {
+      console.log('Login failed - user not found or password mismatch');
       return res.status(401).json({ success: false, error: "Invalid email or password" });
     }
 

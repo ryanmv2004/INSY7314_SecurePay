@@ -17,10 +17,10 @@ jobs:
       # Step 1: Get the code from GitHub
       - checkout
 
-    # Step 2: Install all project dependencies (inside 'SecurePay Portal')
-    - run:
-      name: "Install Dependencies"
-      command: npm install
+      # Step 2: Install all project dependencies (inside 'SecurePay Portal')
+      - run:
+          name: "Install Dependencies"
+          command: npm install
 
       # Step 3: Debug environment variables (safe — does not print the token value)
       - run:

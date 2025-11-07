@@ -10,9 +10,11 @@ orbs:
 # Define the job that will run
 jobs:
   build-and-scan:
-    # Use a standard Node.js environment
-    executor: cimg/node:18.0
-    
+    # Use a standard Node.js environment via Docker image
+    docker:
+      - image: cimg/node:18.0
+    working_directory: ~/repo
+
     steps:
       # Step 1: Get the code from GitHub
       - checkout
@@ -22,18 +24,15 @@ jobs:
           name: "Install Dependencies"
           command: npm install
 
-      # Step 3: Run the SonarCloud scan!
+      # Step 3: Run the SonarQube scan
       - sonar-scan/scan:
-          # These keys are read from the CircleCI Environment Variables
-          # which you will add in the next step.
+          # These values are read from the CircleCI environment (project settings or contexts)
           sonar_token: $SONAR_TOKEN
           project_key: $SONAR_PROJECT_KEY
-          organization: $SONAR_ORGANIZATION
-          
-          # This tells the scanner where your actual source code is
+          # For self-hosted SonarQube, set SONAR_HOST_URL (e.g. https://sonarqube.example.com)
+          sonar_host_url: $SONAR_HOST_URL
+          # Where your source lives relative to repo root
           project_sources: "src/react-app, src/server"
-          
-          # A friendly name for the SonarCloud dashboard
           project_name: "INSY7314_SecurePay"
 
 # Define the workflow (how and when to run the job)

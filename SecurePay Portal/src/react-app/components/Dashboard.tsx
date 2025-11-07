@@ -202,14 +202,16 @@ export default function Dashboard({ user }: DashboardProps) {
           <p className="text-slate-600">View all your payments</p>
         </button>
 
-        <button
-          onClick={() => setActiveTab('employee-approval')}
-          className="p-6 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
-        >
-          <UserCheck className="w-8 h-8 mb-3" />
-          <h3 className="text-lg font-semibold mb-2">Employee Approval</h3>
-          <p className="text-purple-100">Review & approve transactions</p>
-        </button>
+        {user.is_verified && (user as any).is_staff && (
+          <button
+            onClick={() => setActiveTab('employee-approval')}
+            className="p-6 bg-gradient-to-r from-purple-600 to-pink-600 text-white rounded-2xl hover:from-purple-700 hover:to-pink-700 transition-all transform hover:scale-105 shadow-lg"
+          >
+            <UserCheck className="w-8 h-8 mb-3" />
+            <h3 className="text-lg font-semibold mb-2">Employee Approval</h3>
+            <p className="text-purple-100">Review & approve transactions</p>
+          </button>
+        )}
 
         <div className="p-6 bg-white/90 backdrop-blur-md border border-slate-200 rounded-2xl">
           <Eye className="w-8 h-8 mb-3 text-slate-600" />

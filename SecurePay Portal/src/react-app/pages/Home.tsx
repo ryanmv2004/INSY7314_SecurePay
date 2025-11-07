@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Layout from '@/react-app/components/Layout';
 import LoginForm from '@/react-app/components/LoginForm';
 import RegisterForm from '@/react-app/components/RegisterForm';
@@ -9,24 +9,47 @@ interface AppUser {
   email: string;
   full_name?: string | null;
   is_verified: boolean;
+  is_staff?: boolean;
 }
 
 export default function Home() {
-  // TEMPORARY BYPASS: Mock user to skip login/register
-  const [user, setUser] = useState<AppUser | null>({
-    id: 1,
-    email: 'dev@test.com',
-    full_name: 'Developer User',
-    is_verified: true,
-  });
+  // Start without a mock user — enable real login/register flows
+  const [user, setUser] = useState<AppUser | null>(null);
   
-  // Keep login/register functionality (currently bypassed)
+  // Keep login/register functionality
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  // Do not auto-login on startup. Always start on the login screen.
-  const [isInitializing] = useState(false);
+  // Initialize by checking for an existing auth token and restoring session
+  const [isInitializing, setIsInitializing] = useState(true);
+
+  useEffect(() => {
+    const token = localStorage.getItem('authToken');
+    if (!token) {
+      setIsInitializing(false);
+      return;
+    }
+
+    (async () => {
+      try {
+        const res = await fetch('/api/user/profile', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const result = await res.json();
+          setUser(result.data || null);
+        } else {
+          localStorage.removeItem('authToken');
+        }
+      } catch (err) {
+        console.error('Failed to restore session:', err);
+        localStorage.removeItem('authToken');
+      } finally {
+        setIsInitializing(false);
+      }
+    })();
+  }, []);
 
   const handleLogin = async (email: string, password: string) => {
     setLoading(true);

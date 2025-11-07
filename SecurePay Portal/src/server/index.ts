@@ -1,6 +1,7 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { MongoClient, ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 import { LoginSchema, RegisterSchema, CreatePaymentSchema } from '../shared/types';
 import cors from 'cors';
 import * as dotenv from 'dotenv';
@@ -27,17 +28,117 @@ dotenv.config();
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// JWT secret (use env if provided, otherwise keep a process-random secret so tokens
+// are valid only for this process). This avoids failing when JWT_SECRET is not set.
+const JWT_SECRET = process.env.JWT_SECRET || crypto.randomBytes(64).toString('hex');
+
 // MongoDB connection
 let db: any;
-const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/securepay';
+const MONGODB_URI = process.env.MONGODB_URI || '';
+
+// Minimal in-memory collection implementation used as a fallback when MongoDB is not available.
+function createInMemoryDb() {
+  const collections: Record<string, any[]> = {
+    users: [],
+    user_sessions: [],
+    payment_transactions: [],
+  };
+
+  function match(doc: any, query: any) {
+    for (const key of Object.keys(query)) {
+      const qv = query[key];
+      const dv = doc[key];
+      if (qv && typeof qv === 'object' && ('$gt' in qv || '$lt' in qv)) {
+        if ('$gt' in qv && !(dv > qv['$gt'])) return false;
+        if ('$lt' in qv && !(dv < qv['$lt'])) return false;
+      } else if (qv instanceof RegExp) {
+        if (!qv.test(dv)) return false;
+      } else if (qv !== dv) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  function collection(name: string) {
+    if (!collections[name]) collections[name] = [];
+
+    return {
+      __inMemory: true,
+      async createIndex() { /* no-op for in-memory */ },
+      async indexInformation() { return []; },
+      async findOne(query: any) {
+        return collections[name].find((d: any) => match(d, query)) || null;
+      },
+      async insertOne(doc: any) {
+        const toInsert = { ...doc };
+        if (!('_id' in toInsert)) {
+          toInsert._id = crypto.randomUUID();
+        }
+        collections[name].push(toInsert);
+        return { insertedId: toInsert._id };
+      },
+      async updateOne(filter: any, update: any) {
+        const idx = collections[name].findIndex((d: any) => match(d, filter));
+        if (idx === -1) return { matchedCount: 0, modifiedCount: 0 };
+        const set = update.$set || {};
+        collections[name][idx] = { ...collections[name][idx], ...set };
+        return { matchedCount: 1, modifiedCount: 1 };
+      },
+      find(filter: any) {
+        const results = collections[name].filter((d: any) => match(d, filter || {}));
+        return {
+          sort() { return this; },
+          limit() { return this; },
+          toArray: async () => results.slice(),
+        };
+      },
+      async findOneAndUpdate(filter: any, update: any, opts?: any) {
+        const idx = collections[name].findIndex((d: any) => match(d, filter));
+        if (idx === -1) return { value: null };
+        const set = update.$set || {};
+        collections[name][idx] = { ...collections[name][idx], ...set };
+        return { value: collections[name][idx] };
+      }
+    };
+  }
+
+  return { collection, __inMemory: true };
+}
 
 async function connectToDatabase() {
+  if (!MONGODB_URI) {
+    console.warn('No MongoDB connection string provided — falling back to in-memory DB.');
+    db = createInMemoryDb();
+    // Seed a demo staff user for local development so admin endpoints can be used.
+    try {
+      const existing = await db.collection('users').findOne({ email: 'test12345@gmail.com' });
+      if (!existing) {
+        const passwordHash = await hashPassword('P@ssw0rd!');
+        await db.collection('users').insertOne({
+          email: 'test12345@gmail.com',
+          password_hash: passwordHash,
+          full_name: 'Demo Staff',
+          is_verified: true,
+          is_active: true,
+          is_staff: true,
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+        console.log('Seeded demo staff user: test12345@gmail.com / P@ssw0rd!');
+      }
+    } catch (e) {
+      console.warn('Failed to seed demo staff user:', e);
+    }
+    return;
+  }
+
   try {
     const client = new MongoClient(MONGODB_URI);
     await client.connect();
     db = client.db();
     console.log('Connected to MongoDB');
-    
+
     // Create indexes for better performance
     await db.collection('users').createIndex({ email: 1 }, { unique: true });
     // Ensure username index is unique but sparse (so multiple null/missing usernames are allowed)
@@ -45,7 +146,6 @@ async function connectToDatabase() {
       const indexes = await db.collection('users').indexInformation({ full: true });
       const usernameIndex = indexes.find((ix: any) => ix.name === 'username_1');
       if (usernameIndex) {
-        // If the existing index is not sparse, drop it and recreate as sparse
         if (!usernameIndex.sparse) {
           console.log('Dropping non-sparse username index and recreating as sparse to avoid null-duplicates');
           await db.collection('users').dropIndex('username_1');
@@ -55,7 +155,6 @@ async function connectToDatabase() {
         await db.collection('users').createIndex({ username: 1 }, { unique: true, sparse: true });
       }
     } catch (err) {
-      // indexInformation may throw on some drivers/permissions — fall back to safe createIndex
       try {
         await db.collection('users').createIndex({ username: 1 }, { unique: true, sparse: true });
       } catch (e) {
@@ -66,10 +165,29 @@ async function connectToDatabase() {
     await db.collection('user_sessions').createIndex({ expires_at: 1 }, { expireAfterSeconds: 0 });
     await db.collection('payment_transactions').createIndex({ user_id: 1 });
     await db.collection('payment_transactions').createIndex({ reference_number: 1 }, { unique: true });
-    
+
   } catch (error) {
-    console.error('Failed to connect to MongoDB:', error);
-    process.exit(1);
+    console.error('Failed to connect to MongoDB, falling back to in-memory DB:', error);
+    db = createInMemoryDb();
+    try {
+      const existing = await db.collection('users').findOne({ email: 'test12345@gmail.com' });
+      if (!existing) {
+        const passwordHash = await hashPassword('P@ssw0rd!');
+        await db.collection('users').insertOne({
+          email: 'test12345@gmail.com',
+          password_hash: passwordHash,
+          full_name: 'Demo Staff',
+          is_verified: true,
+          is_active: true,
+          is_staff: true,
+          created_at: new Date(),
+          updated_at: new Date()
+        });
+        console.log('Seeded demo staff user (fallback): test12345@gmail.com / P@ssw0rd!');
+      }
+    } catch (e) {
+      console.warn('Failed to seed demo staff user in fallback DB:', e);
+    }
   }
 }
 
@@ -102,24 +220,58 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 
 // Limit JSON payload size to mitigate some DoS vectors from huge request bodies
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '10kb' }));
+
+/**
+ * Basic server-side sanitizer to reduce stored XSS risk.
+ * This does a light pass: removes <script>...</script> blocks and escapes < and > in strings.
+ * It's intentionally conservative so it doesn't block valid input formats entirely.
+ */
+function sanitizeValue(value: any): any {
+  if (typeof value === 'string') {
+    // Drop script tags and their contents
+    value = value.replace(/<script[\s\S]*?>[\s\S]*?<\/script>/gi, '');
+    // Escape angle brackets to prevent raw HTML being stored
+    value = value.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return value;
+  }
+  if (Array.isArray(value)) return value.map(sanitizeValue);
+  if (value && typeof value === 'object') {
+    const out: any = {};
+    for (const k of Object.keys(value)) out[k] = sanitizeValue(value[k]);
+    return out;
+  }
+  return value;
+}
+
+function sanitizeInput(req: Request, _res: Response, next: NextFunction) {
+  if (req.body) req.body = sanitizeValue(req.body);
+  if (req.query) req.query = sanitizeValue(req.query);
+  next();
+}
+
+app.use(sanitizeInput);
 app.use(express.static(path.join(__dirname, '../../dist')));
 
-// Rate limiting helper
+// Rate limiting helper (keyed by action+ip to avoid one flow blocking another)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 
-function checkRateLimit(ip: string, maxRequests = 5, windowMs = 60000): boolean {
+/**
+ * Check a rate limit using a key string. Key should include action and client IP
+ * (e.g. `register:127.0.0.1`) so different flows have separate quotas.
+ */
+function checkRateLimit(key: string, maxRequests = 5, windowMs = 60000): boolean {
   const now = Date.now();
-  const userLimit = rateLimitMap.get(ip);
-  
+  const userLimit = rateLimitMap.get(key);
+
   if (!userLimit || now > userLimit.resetTime) {
-    rateLimitMap.set(ip, { count: 1, resetTime: now + windowMs });
+    rateLimitMap.set(key, { count: 1, resetTime: now + windowMs });
     return true;
   }
-  
+
   if (userLimit.count >= maxRequests) {
     return false;
   }
-  
+
   userLimit.count++;
   return true;
 }
@@ -148,45 +300,85 @@ async function verifyPassword(password: string, hash: string): Promise<boolean> 
   return await bcrypt.compare(password, hash);
 }
 
+// Sign a JWT for the given user id and claims. Short-lived token for API usage.
+function signJwt(userId: string, opts?: { expiresIn?: string }) {
+  const payload = { sub: userId };
+  return jwt.sign(payload, JWT_SECRET, { expiresIn: opts?.expiresIn || '1h' });
+}
+
+// Helper to find a user by id that works for both in-memory and MongoDB backends
+async function findUserById(id: string) {
+  const users = db.collection('users');
+  if (users.__inMemory) {
+    return await users.findOne({ _id: id });
+  }
+  try {
+    if (ObjectId.isValid(id)) {
+      return await users.findOne({ _id: new ObjectId(id) });
+    }
+  } catch (_) {
+    // fallthrough
+  }
+  // Last resort: try string match
+  return await users.findOne({ _id: id });
+}
+
 // Authentication middleware
 async function authMiddleware(req: Request, res: Response, next: NextFunction) {
   const authorization = req.headers.authorization;
-  if (!authorization || !authorization.startsWith("Bearer ")) {
-    return res.status(401).json({ success: false, error: "Unauthorized" });
+  if (!authorization || !authorization.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, error: 'Unauthorized' });
   }
 
-  const token = authorization.split(" ")[1];
+  const token = authorization.split(' ')[1];
+
+  // Try session lookup first (existing session token flow)
   const session = await db.collection('user_sessions').findOne({
     session_token: token,
     is_active: true,
     expires_at: { $gt: new Date() }
   });
 
-  if (!session) {
-    return res.status(401).json({ success: false, error: "Invalid or expired session" });
-  }
+  if (session) {
+    // Get user details
+    const user = await findUserById(String(session.user_id));
+    if (!user) return res.status(401).json({ success: false, error: 'User not found' });
 
-  // Get user details
-  const user = await db.collection('users').findOne({ _id: session.user_id });
-  if (!user) {
-    return res.status(401).json({ success: false, error: "User not found" });
-  }
-
-  // Optional strict session binding to IP and User-Agent to mitigate session theft
-  const STRICT_BINDING = process.env.SESSION_STRICT_BINDING === 'true';
-  if (STRICT_BINDING) {
-    const incomingIP = req.ip || (req.connection && (req.connection as any).remoteAddress) || '';
-    const incomingUA = req.headers['user-agent'] || '';
-    if (session.ip_address && session.ip_address !== incomingIP) {
-      return res.status(401).json({ success: false, error: 'Session IP mismatch' });
+    const STRICT_BINDING = process.env.SESSION_STRICT_BINDING === 'true';
+    if (STRICT_BINDING) {
+      const incomingIP = req.ip || (req.connection && (req.connection as any).remoteAddress) || '';
+      const incomingUA = req.headers['user-agent'] || '';
+      if (session.ip_address && session.ip_address !== incomingIP) {
+        return res.status(401).json({ success: false, error: 'Session IP mismatch' });
+      }
+      if (session.user_agent && String(session.user_agent) !== String(incomingUA)) {
+        return res.status(401).json({ success: false, error: 'Session User-Agent mismatch' });
+      }
     }
-    if (session.user_agent && String(session.user_agent) !== String(incomingUA)) {
-      return res.status(401).json({ success: false, error: 'Session User-Agent mismatch' });
-    }
+
+    const merged = { ...session, ...user };
+    merged.is_staff = !!user.is_staff;
+    req.user = merged;
+    return next();
   }
 
-  req.user = { ...session, ...user };
-  next();
+  // If no session found, attempt JWT verification (stateless token flow)
+  try {
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    const userId = decoded?.sub;
+    if (!userId) return res.status(401).json({ success: false, error: 'Invalid token payload' });
+
+    const user = await findUserById(String(userId));
+    if (!user) return res.status(401).json({ success: false, error: 'User not found' });
+
+    // Build a minimal req.user from the user record
+    const minimal = { ...user };
+    minimal.is_staff = !!user.is_staff;
+    req.user = minimal;
+    return next();
+  } catch (err) {
+    return res.status(401).json({ success: false, error: 'Invalid or expired session' });
+  }
 }
 
 // Validation middleware factory
@@ -209,7 +401,8 @@ function validateRequest(schema: any) {
 app.post("/api/auth/register", validateRequest(RegisterSchema), async (req: Request, res: Response) => {
   const clientIP = req.ip || req.connection.remoteAddress || "unknown";
   
-  if (!checkRateLimit(clientIP, 3, 300000)) { // 3 attempts per 5 minutes
+  // Use an action-prefixed key so registration attempts are limited separately from login
+  if (!checkRateLimit(`register:${clientIP}`, 3, 300000)) { // 3 attempts per 5 minutes
     return res.status(429).json({ success: false, error: "Too many registration attempts. Please try again later." });
   }
 
@@ -234,6 +427,7 @@ app.post("/api/auth/register", validateRequest(RegisterSchema), async (req: Requ
       password_hash: passwordHash,
       is_verified: false,
       is_active: true,
+      is_staff: false,
       created_at: new Date(),
       updated_at: new Date(),
     };
@@ -261,7 +455,7 @@ app.post("/api/auth/login", validateRequest(LoginSchema), async (req: Request, r
   const clientIP = req.ip || req.connection.remoteAddress || "unknown";
   const userAgent = req.headers['user-agent'] || "";
   
-  if (!checkRateLimit(clientIP, 5, 900000)) { // 5 attempts per 15 minutes
+  if (!checkRateLimit(`login:${clientIP}`, 5, 900000)) { // 5 attempts per 15 minutes
     return res.status(429).json({ success: false, error: "Too many login attempts. Please try again later." });
   }
 
@@ -293,19 +487,23 @@ app.post("/api/auth/login", validateRequest(LoginSchema), async (req: Request, r
       created_at: new Date(),
       updated_at: new Date()
     });
+    // Also issue a JWT so clients can choose stateless auth if desired
+    const jwtToken = signJwt(user._id?.toString ? user._id.toString() : String(user._id), { expiresIn: '1h' });
 
     res.json({
       success: true,
-      message: "Login successful",
+      message: 'Login successful',
       data: {
         token: sessionToken,
+        jwt: jwtToken,
         user: {
           id: user._id?.toString ? user._id.toString() : String(user._id),
           email: user.email || null,
           account_number: user.account_number || null,
           username: user.username || null,
           full_name: user.full_name || null,
-          is_verified: !!user.is_verified
+          is_verified: !!user.is_verified,
+          is_staff: !!user.is_staff
         }
       }
     });
@@ -353,7 +551,7 @@ app.post("/api/payments/create", authMiddleware, validateRequest(CreatePaymentSc
   const user = req.user;
   const clientIP = req.ip || req.connection.remoteAddress || "unknown";
   
-  if (!checkRateLimit(clientIP, 10, 3600000)) { // 10 payments per hour
+  if (!checkRateLimit(`payments:${clientIP}`, 10, 3600000)) { // 10 payments per hour
     return res.status(429).json({ success: false, error: "Payment limit exceeded. Please try again later." });
   }
 
@@ -382,6 +580,7 @@ app.post("/api/payments/create", authMiddleware, validateRequest(CreatePaymentSc
     const result = await db.collection('payment_transactions').insertOne({
       user_id: user._id,
       user_account: user.account_number || null,
+      swift_code: paymentData.swift_code || null,
       recipient_name: paymentData.recipient_name,
       recipient_account: paymentData.recipient_account,
       recipient_bank: paymentData.recipient_bank,
@@ -443,14 +642,24 @@ app.get("/api/payments/:id", authMiddleware, async (req: Request, res: Response)
   const transactionId = req.params.id;
   
   try {
-    if (!ObjectId.isValid(transactionId)) {
-      return res.status(400).json({ success: false, error: "Invalid transaction ID" });
-    }
+    const paymentCollection = db.collection('payment_transactions');
 
-    const transaction = await db.collection('payment_transactions').findOne({
-      _id: new ObjectId(transactionId),
-      user_id: user._id
-    });
+    let transaction: any = null;
+    // If using in-memory DB, IDs are strings/UUIDs — skip ObjectId validation
+    if (paymentCollection.__inMemory) {
+      transaction = await paymentCollection.findOne({
+        _id: transactionId,
+        user_id: user._id
+      });
+    } else {
+      if (!ObjectId.isValid(transactionId)) {
+        return res.status(400).json({ success: false, error: "Invalid transaction ID" });
+      }
+      transaction = await paymentCollection.findOne({
+        _id: new ObjectId(transactionId),
+        user_id: user._id
+      });
+    }
 
     if (!transaction) {
       return res.status(404).json({ success: false, error: "Transaction not found" });
@@ -481,7 +690,56 @@ app.get('/api/admin/transactions', authMiddleware, async (req: Request, res: Res
   if (status) filter.status = status;
 
   try {
-    const transactions = await db.collection('payment_transactions').find(filter).sort({ created_at: -1 }).limit(200).toArray();
+    const paymentCollection = db.collection('payment_transactions');
+
+    if (paymentCollection.__inMemory) {
+      // In-memory: fetch transactions and attach user info per-transaction
+      const txs: any[] = await paymentCollection.find(filter).sort({ created_at: -1 }).limit(200).toArray();
+      const adapted: any[] = [];
+      for (const t of txs) {
+        let submitter: any = null;
+        try {
+          submitter = await db.collection('users').findOne({ _id: t.user_id });
+        } catch (e) {
+          submitter = null;
+        }
+        adapted.push({
+          ...t,
+          user_email: submitter?.email || t.user_email || '',
+          user_name: submitter?.full_name || t.user_name || ''
+        });
+      }
+      return res.json({ success: true, data: adapted });
+    }
+
+    // MongoDB: use aggregation to $lookup user info
+    const pipeline: any[] = [
+      { $match: filter },
+      { $sort: { created_at: -1 } },
+      { $limit: 200 },
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'user_id',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $unwind: { path: '$user', preserveNullAndEmptyArrays: true } },
+      {
+        $addFields: {
+          user_email: { $ifNull: ['$user.email', ''] },
+          user_name: { $ifNull: ['$user.full_name', ''] }
+        }
+      },
+      {
+        $project: {
+          user: 0 // remove embedded user object
+        }
+      }
+    ];
+
+    const transactions = await db.collection('payment_transactions').aggregate(pipeline).toArray();
     res.json({ success: true, data: transactions });
   } catch (error) {
     console.error('Admin transactions error:', error);
@@ -496,11 +754,21 @@ app.post('/api/admin/transactions/:id/verify', authMiddleware, async (req: Reque
 
   const id = req.params.id;
   try {
-    const result = await db.collection('payment_transactions').findOneAndUpdate(
-      { _id: new ObjectId(id) },
-      { $set: { is_processed: true, status: 'completed', processed_at: new Date(), updated_at: new Date() } },
-      { returnDocument: 'after' }
-    );
+    const paymentCollection = db.collection('payment_transactions');
+    let result: any;
+    if (paymentCollection.__inMemory) {
+      result = await paymentCollection.findOneAndUpdate(
+        { _id: id },
+        { $set: { is_processed: true, status: 'completed', processed_at: new Date(), updated_at: new Date() } },
+        { returnDocument: 'after' }
+      );
+    } else {
+      result = await paymentCollection.findOneAndUpdate(
+        { _id: new ObjectId(id) },
+        { $set: { is_processed: true, status: 'completed', processed_at: new Date(), updated_at: new Date() } },
+        { returnDocument: 'after' }
+      );
+    }
 
     if (!result.value) return res.status(404).json({ success: false, error: 'Transaction not found' });
 

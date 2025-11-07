@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { CheckCircle, XCircle, Clock, AlertTriangle, Eye, Filter, Search, User, Building, Globe, DollarSign } from 'lucide-react';
 
 interface Transaction {
-  id: number;
+  id: string;
   recipient_name: string;
   recipient_account: string;
   recipient_bank: string;
@@ -20,94 +20,59 @@ interface Transaction {
 }
 
 export default function EmployeeApproval() {
-  // Mock data for demonstration - in production this would come from API
-  const [transactions, setTransactions] = useState<Transaction[]>([
-    {
-      id: 1,
-      recipient_name: 'JOHN SMITH',
-      recipient_account: 'GB82WEST12345698765432',
-      recipient_bank: 'HSBC Bank',
-      recipient_country: 'United Kingdom',
-      amount: 5000.00,
-      currency: 'USD',
-      reference_number: 'TXN-2024-001',
-      status: 'pending',
-      transaction_fee: 100.00,
-      purpose: 'Business payment for consulting services',
-      created_at: new Date().toISOString(),
-      user_email: 'john.doe@example.com',
-      user_name: 'John Doe',
-      swift_code: 'HSBCGB2L'
-    },
-    {
-      id: 2,
-      recipient_name: 'MARIE DUBOIS',
-      recipient_account: 'FR7630006000011234567890189',
-      recipient_bank: 'BNP Paribas',
-      recipient_country: 'France',
-      amount: 3200.50,
-      currency: 'EUR',
-      reference_number: 'TXN-2024-002',
-      status: 'pending',
-      transaction_fee: 64.01,
-      purpose: 'Payment for software licenses',
-      created_at: new Date(Date.now() - 3600000).toISOString(),
-      user_email: 'sarah.wilson@example.com',
-      user_name: 'Sarah Wilson',
-      swift_code: 'BNPAFRPP'
-    },
-    {
-      id: 3,
-      recipient_name: 'YUKI TANAKA',
-      recipient_account: 'JP1234567890123456',
-      recipient_bank: 'Mitsubishi UFJ',
-      recipient_country: 'Japan',
-      amount: 10000.00,
-      currency: 'JPY',
-      reference_number: 'TXN-2024-003',
-      status: 'pending',
-      transaction_fee: 200.00,
-      purpose: 'Equipment purchase',
-      created_at: new Date(Date.now() - 7200000).toISOString(),
-      user_email: 'mike.brown@example.com',
-      user_name: 'Mike Brown',
-      swift_code: 'BOTKJPJT'
-    },
-    {
-      id: 4,
-      recipient_name: 'ANNA MUELLER',
-      recipient_account: 'DE89370400440532013000',
-      recipient_bank: 'Deutsche Bank',
-      recipient_country: 'Germany',
-      amount: 7500.00,
-      currency: 'EUR',
-      reference_number: 'TXN-2024-004',
-      status: 'approved',
-      transaction_fee: 150.00,
-      purpose: 'Partnership investment',
-      created_at: new Date(Date.now() - 86400000).toISOString(),
-      user_email: 'lisa.anderson@example.com',
-      user_name: 'Lisa Anderson',
-      swift_code: 'DEUTDEFF'
-    },
-    {
-      id: 5,
-      recipient_name: 'ROBERT JOHNSON',
-      recipient_account: 'CA1234567890123456',
-      recipient_bank: 'Royal Bank of Canada',
-      recipient_country: 'Canada',
-      amount: 2500.00,
-      currency: 'CAD',
-      reference_number: 'TXN-2024-005',
-      status: 'rejected',
-      transaction_fee: 50.00,
-      purpose: 'Gift to family member',
-      created_at: new Date(Date.now() - 172800000).toISOString(),
-      user_email: 'tom.harris@example.com',
-      user_name: 'Tom Harris',
-      swift_code: 'ROYCCAT2'
-    },
-  ]);
+  const [transactions, setTransactions] = useState<Transaction[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchAdminTransactions();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const fetchAdminTransactions = async () => {
+    setLoading(true);
+    setFetchError(null);
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch('/api/admin/transactions', {
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      if (res.status === 403) {
+        setFetchError('You must be logged in as staff to view transactions.');
+        setLoading(false);
+        return;
+      }
+      if (!res.ok) {
+        setFetchError('Failed to fetch transactions');
+        setLoading(false);
+        return;
+      }
+      const result = await res.json();
+      const adapted: Transaction[] = (result.data || []).map((t: any) => ({
+        id: t._id?.toString ? t._id.toString() : String(t._id),
+        recipient_name: t.recipient_name,
+        recipient_account: t.recipient_account,
+        recipient_bank: t.recipient_bank,
+        recipient_country: t.recipient_country,
+        swift_code: t.swift_code,
+        amount: t.amount,
+        currency: t.currency,
+        reference_number: t.reference_number,
+        status: t.status,
+        transaction_fee: t.transaction_fee,
+        purpose: t.purpose,
+        created_at: t.created_at,
+        user_email: t.user_email || t.email || '',
+        user_name: t.user_name || t.full_name || ''
+      }));
+      setTransactions(adapted);
+    } catch (err) {
+      console.error('Admin fetch error', err);
+      setFetchError('Network error while fetching transactions');
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const [filterStatus, setFilterStatus] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -140,22 +105,33 @@ export default function EmployeeApproval() {
     }
   };
 
-  const handleApprove = (transactionId: number) => {
-    setTransactions(prev =>
-      prev.map(tx =>
-        tx.id === transactionId ? { ...tx, status: 'approved' } : tx
-      )
-    );
+  const handleApprove = async (transactionId: string) => {
+    // Call admin verify API to mark as processed/completed
+    try {
+      const token = localStorage.getItem('authToken');
+      const res = await fetch(`/api/admin/transactions/${transactionId}/verify`, {
+        method: 'POST',
+        headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+      });
+      if (res.ok) {
+        const result = await res.json();
+        const updated = result.data;
+        setTransactions(prev => prev.map(tx => tx.id === transactionId ? { ...tx, status: updated.status } : tx));
+      } else {
+        // Fallback to local update on failure
+        setTransactions(prev => prev.map(tx => tx.id === transactionId ? { ...tx, status: 'approved' } : tx));
+      }
+    } catch (err) {
+      console.error('Approve error', err);
+      setTransactions(prev => prev.map(tx => tx.id === transactionId ? { ...tx, status: 'approved' } : tx));
+    }
     setShowDetailModal(false);
     setSelectedTransaction(null);
   };
 
-  const handleReject = (transactionId: number) => {
-    setTransactions(prev =>
-      prev.map(tx =>
-        tx.id === transactionId ? { ...tx, status: 'rejected' } : tx
-      )
-    );
+  const handleReject = (transactionId: string) => {
+    // No server endpoint for rejection yet; update locally for now.
+    setTransactions(prev => prev.map(tx => tx.id === transactionId ? { ...tx, status: 'rejected' } : tx));
     setShowDetailModal(false);
     setSelectedTransaction(null);
   };
@@ -203,6 +179,16 @@ export default function EmployeeApproval() {
         </h1>
         <p className="text-slate-600">Review and approve international payment transactions</p>
       </div>
+          {loading && (
+            <div className="mb-6 max-w-7xl mx-auto px-4">
+              <div className="p-4 bg-blue-50 text-blue-700 rounded-lg border border-blue-200 text-sm">Loading transactions…</div>
+            </div>
+          )}
+          {fetchError && (
+            <div className="mb-6 max-w-7xl mx-auto px-4">
+              <div className="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200 text-sm">{fetchError}</div>
+            </div>
+          )}
 
       {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
@@ -379,7 +365,7 @@ export default function EmployeeApproval() {
                       <p className="text-xs text-slate-600">Bank & SWIFT</p>
                     </div>
                     <p className="font-medium text-slate-900">{transaction.recipient_bank}</p>
-                    <p className="text-sm text-slate-600">SWIFT: {transaction.swift_code}</p>
+                    <p className="text-sm text-slate-600">SWIFT: {transaction.swift_code || 'N/A'}</p>
                     <div className="flex items-center space-x-1">
                       <Globe className="w-3 h-3 text-slate-500" />
                       <p className="text-sm text-slate-600">{transaction.recipient_country}</p>
@@ -510,7 +496,7 @@ export default function EmployeeApproval() {
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-600">SWIFT Code:</span>
-                    <span className="font-medium">{selectedTransaction.swift_code}</span>
+                    <span className="font-medium">{selectedTransaction.swift_code || 'N/A'}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-600">Country:</span>

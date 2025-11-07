@@ -12,9 +12,11 @@ async function seed() {
     await client.connect();
     const db = client.db();
 
-    const username = process.argv[2] || 'admin';
-    const email = process.argv[3] || 'admin@example.com';
-    const password = process.argv[4] || 'P@ssw0rd!';
+  const username = process.argv[2] || 'admin';
+  const email = process.argv[3] || 'admin@example.com';
+  const password = process.argv[4] || 'P@ssw0rd!';
+  // Optional 5th argument 'true' will mark the seeded user as staff (is_staff = true)
+  const isStaff = (process.argv[5] || 'true') === 'true';
 
     const saltRounds = 12;
     const password_hash = await bcrypt.hash(password, saltRounds);
@@ -28,6 +30,7 @@ async function seed() {
       address: null,
       is_verified: true,
       is_active: true,
+      is_staff: isStaff,
       created_at: new Date(),
       updated_at: new Date(),
     });

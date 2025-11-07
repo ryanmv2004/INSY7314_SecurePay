@@ -7,6 +7,7 @@ interface Transaction {
   recipient_account: string;
   recipient_bank: string;
   recipient_country: string;
+  swift_code: string;
   amount: number;
   currency: string;
   reference_number: string;
@@ -36,6 +37,7 @@ export default function EmployeeApproval() {
       created_at: new Date().toISOString(),
       user_email: 'john.doe@example.com',
       user_name: 'John Doe',
+      swift_code: 'HSBCGB2L'
     },
     {
       id: 2,
@@ -52,6 +54,7 @@ export default function EmployeeApproval() {
       created_at: new Date(Date.now() - 3600000).toISOString(),
       user_email: 'sarah.wilson@example.com',
       user_name: 'Sarah Wilson',
+      swift_code: 'BNPAFRPP'
     },
     {
       id: 3,
@@ -68,6 +71,7 @@ export default function EmployeeApproval() {
       created_at: new Date(Date.now() - 7200000).toISOString(),
       user_email: 'mike.brown@example.com',
       user_name: 'Mike Brown',
+      swift_code: 'BOTKJPJT'
     },
     {
       id: 4,
@@ -84,6 +88,7 @@ export default function EmployeeApproval() {
       created_at: new Date(Date.now() - 86400000).toISOString(),
       user_email: 'lisa.anderson@example.com',
       user_name: 'Lisa Anderson',
+      swift_code: 'DEUTDEFF'
     },
     {
       id: 5,
@@ -100,6 +105,7 @@ export default function EmployeeApproval() {
       created_at: new Date(Date.now() - 172800000).toISOString(),
       user_email: 'tom.harris@example.com',
       user_name: 'Tom Harris',
+      swift_code: 'ROYCCAT2'
     },
   ]);
 
@@ -370,9 +376,10 @@ export default function EmployeeApproval() {
                   <div>
                     <div className="flex items-center space-x-2 mb-1">
                       <Building className="w-4 h-4 text-slate-500" />
-                      <p className="text-xs text-slate-600">Bank & Country</p>
+                      <p className="text-xs text-slate-600">Bank & SWIFT</p>
                     </div>
                     <p className="font-medium text-slate-900">{transaction.recipient_bank}</p>
+                    <p className="text-sm text-slate-600">SWIFT: {transaction.swift_code}</p>
                     <div className="flex items-center space-x-1">
                       <Globe className="w-3 h-3 text-slate-500" />
                       <p className="text-sm text-slate-600">{transaction.recipient_country}</p>
@@ -500,6 +507,10 @@ export default function EmployeeApproval() {
                   <div className="flex justify-between">
                     <span className="text-slate-600">Bank:</span>
                     <span className="font-medium">{selectedTransaction.recipient_bank}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-slate-600">SWIFT Code:</span>
+                    <span className="font-medium">{selectedTransaction.swift_code}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-slate-600">Country:</span>

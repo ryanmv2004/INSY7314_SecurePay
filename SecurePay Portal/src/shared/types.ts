@@ -48,6 +48,7 @@ export const PaymentTransactionSchema = z.object({
   recipient_account: z.string(),
   recipient_bank: z.string(),
   recipient_country: z.string(),
+  swift_code: z.string(),
   amount: z.number(),
   currency: z.string(),
   exchange_rate: z.number().nullable(),
@@ -79,6 +80,10 @@ export const CreatePaymentSchema = z.object({
     .min(2, "Country is required")
     .max(56, "Country name too long")
     .regex(/^[a-zA-Z\s]+$/, "Country can only contain letters and spaces"),
+  swift_code: z.string()
+    .min(8, "SWIFT code must be 8 or 11 characters")
+    .max(11, "SWIFT code must be 8 or 11 characters")
+    .regex(/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/, "Invalid SWIFT code format"),
   amount: z.number()
     .min(1, "Amount must be at least 1")
     .max(50000, "Amount cannot exceed 50,000"),

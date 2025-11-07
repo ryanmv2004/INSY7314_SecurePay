@@ -7,6 +7,7 @@ interface PaymentFormProps {
     recipient_account: string;
     recipient_bank: string;
     recipient_country: string;
+    swift_code: string;
     amount: number;
     currency: string;
     purpose?: string;
@@ -39,6 +40,7 @@ export default function PaymentForm({ onSubmit, loading, error }: PaymentFormPro
     recipient_account: '',
     recipient_bank: '',
     recipient_country: '',
+    swift_code: '',
     amount: '',
     currency: 'USD',
     purpose: ''
@@ -79,6 +81,13 @@ export default function PaymentForm({ onSubmit, loading, error }: PaymentFormPro
       errors.recipient_country = 'Country is required';
     }
     
+    // SWIFT code validation
+    if (!formData.swift_code) {
+      errors.swift_code = 'SWIFT code is required';
+    } else if (!/^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(formData.swift_code)) {
+      errors.swift_code = 'Invalid SWIFT code format (e.g., BOFAUS3N or DEUTDEFF500)';
+    }
+    
     // Amount validation
     if (!formData.amount) {
       errors.amount = 'Amount is required';
@@ -114,6 +123,7 @@ export default function PaymentForm({ onSubmit, loading, error }: PaymentFormPro
   const handleConfirm = async () => {
     await onSubmit({
       ...formData,
+      swift_code: formData.swift_code,
       amount: parseFloat(formData.amount),
       purpose: formData.purpose || undefined,
     });
@@ -147,6 +157,7 @@ export default function PaymentForm({ onSubmit, loading, error }: PaymentFormPro
                   <div><span className="text-slate-600">Name:</span> <span className="font-medium">{formData.recipient_name}</span></div>
                   <div><span className="text-slate-600">Account:</span> <span className="font-medium">{formData.recipient_account}</span></div>
                   <div><span className="text-slate-600">Bank:</span> <span className="font-medium">{formData.recipient_bank}</span></div>
+                  <div><span className="text-slate-600">SWIFT Code:</span> <span className="font-medium">{formData.swift_code}</span></div>
                   <div><span className="text-slate-600">Country:</span> <span className="font-medium">{formData.recipient_country}</span></div>
                 </div>
               </div>
@@ -286,28 +297,52 @@ export default function PaymentForm({ onSubmit, loading, error }: PaymentFormPro
 
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-2">
-                  Country *
+                  SWIFT Code *
                 </label>
                 <div className="relative">
-                  <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
-                  <select
-                    value={formData.recipient_country}
-                    onChange={(e) => setFormData({ ...formData, recipient_country: e.target.value })}
+                  <Building className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+                  <input
+                    type="text"
+                    value={formData.swift_code}
+                    onChange={(e) => setFormData({ ...formData, swift_code: e.target.value.toUpperCase() })}
                     className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
-                      validationErrors.recipient_country ? 'border-red-300' : 'border-slate-300'
+                      validationErrors.swift_code ? 'border-red-300' : 'border-slate-300'
                     }`}
+                    placeholder="BOFAUS3N"
+                    maxLength={11}
                     disabled={loading}
-                  >
-                    <option value="">Select Country</option>
-                    {countries.map((country) => (
-                      <option key={country} value={country}>{country}</option>
-                    ))}
-                  </select>
+                  />
                 </div>
-                {validationErrors.recipient_country && (
-                  <p className="mt-1 text-sm text-red-600">{validationErrors.recipient_country}</p>
+                {validationErrors.swift_code && (
+                  <p className="mt-1 text-sm text-red-600">{validationErrors.swift_code}</p>
                 )}
+                <p className="mt-1 text-xs text-slate-500">8 or 11 characters (e.g., BOFAUS3N)</p>
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-2">
+                Country *
+              </label>
+              <div className="relative">
+                <Globe className="absolute left-3 top-1/2 transform -translate-y-1/2 w-5 h-5 text-slate-400" />
+                <select
+                  value={formData.recipient_country}
+                  onChange={(e) => setFormData({ ...formData, recipient_country: e.target.value })}
+                  className={`w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors ${
+                    validationErrors.recipient_country ? 'border-red-300' : 'border-slate-300'
+                  }`}
+                  disabled={loading}
+                >
+                  <option value="">Select Country</option>
+                  {countries.map((country) => (
+                    <option key={country} value={country}>{country}</option>
+                  ))}
+                </select>
+              </div>
+              {validationErrors.recipient_country && (
+                <p className="mt-1 text-sm text-red-600">{validationErrors.recipient_country}</p>
+              )}
             </div>
           </div>
 

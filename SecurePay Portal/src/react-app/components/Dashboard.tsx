@@ -16,6 +16,7 @@ interface Transaction {
   recipient_account: string;
   recipient_bank: string;
   recipient_country: string;
+  swift_code: string;
   amount: number;
   currency: string;
   reference_number: string;

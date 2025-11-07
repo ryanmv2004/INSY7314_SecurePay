@@ -43,7 +43,10 @@ jobs:
           name: "Install OpenJDK and sonar-scanner"
           command: |
             sudo apt-get update -y
-            sudo apt-get install -y openjdk-11-jre-headless
+            # SonarQube Server 12+ requires Java 17+ for the scanner runtime
+            sudo apt-get install -y openjdk-17-jre-headless
+            export JAVA_HOME="/usr/lib/jvm/java-17-openjdk-amd64"
+            export PATH="$JAVA_HOME/bin:$PATH"
             node -v && java -version
             npm install -g sonar-scanner
 
@@ -51,13 +54,30 @@ jobs:
       - run:
           name: "Run SonarQube analysis"
           command: |
-            cd "SecurePay Portal" && \
-            sonar-scanner \
-              -Dsonar.host.url="$SONAR_HOST_URL" \
-              -Dsonar.login="$SONAR_TOKEN" \
-              -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
-              -Dsonar.projectName="INSY7314_SecurePay" \
-              -Dsonar.sources="src/react-app,src/server"
+            cd "SecurePay Portal"
+            echo "Checking Sonar server endpoint: $SONAR_HOST_URL/api/server/version"
+            # show HTTP headers for the API endpoint (do not print body)
+            curl -sS -I "$SONAR_HOST_URL/api/server/version" || true
+
+            # Normalize SONAR_HOST_URL (remove trailing slash)
+            HOST="${SONAR_HOST_URL%/}"
+            echo "Using Sonar host: $HOST"
+
+            # Build scanner args dynamically
+            SCANNER_ARGS=("-Dsonar.host.url=$HOST" "-Dsonar.login=$SONAR_TOKEN" "-Dsonar.projectKey=$SONAR_PROJECT_KEY" "-Dsonar.projectName=INSY7314_SecurePay" "-Dsonar.sources=src/react-app,src/server")
+
+            # If SONAR_ORGANIZATION isn't provided, infer from project key prefix 'ryanmv2004' (assumption)
+            if [ -n "$SONAR_ORGANIZATION" ]; then
+              ORG="$SONAR_ORGANIZATION"
+              echo "Using Sonar organization from env: $ORG"
+            else
+              ORG="ryanmv2004"
+              echo "SONAR_ORGANIZATION not set — defaulting to inferred org: $ORG"
+            fi
+            SCANNER_ARGS+=("-Dsonar.organization=$ORG")
+
+            # Run scanner with debug output (-X). We avoid echoing the token.
+            sonar-scanner -X "${SCANNER_ARGS[@]}"
 
 # Define the workflow (how and when to run the job)
 workflows:
